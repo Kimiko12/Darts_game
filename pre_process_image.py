@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.cluster import KMeans
 from Pylette import extract_colors
+from PIL import Image
 
 source_image_path = '/home/nikolay/ML/It_Jim/Darts_game/images/IMG_20240510_172748.jpg'
 image_without_background_path = '/home/nikolay/ML/It_Jim/Darts_game/masked_image.png'
@@ -82,6 +83,91 @@ def define_colors(image):
     # Display the masks
     for color_name, mask in color_masks.items():
         cv2.imwrite(f'{color_name}_mask.png', mask)
+        
+def KNN(pixel, palette):
+    distances = np.sqrt(np.sum((pixel - palette)**2, axis=1))
+    nearest_color = palette[np.argmin(distances)]
+    return nearest_color
+
+
+def colorizing_image_in_5_shades(image, palette):
+    image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    pixels = image_rgb.reshape(-1, 3)
+    approximated_pixels = np.array([KNN(pixel, palette) for pixel in pixels], dtype = 'uint8')
+    approximated_image = approximated_pixels.reshape(image_rgb.shape)
+    
+    gold_shades = palette[7]
+    mask = np.all(approximated_image == gold_shades, axis = -1)
+    
+    gold_mask_image = np.zeros_like(image_rgb, dtype = 'uint8')
+    gold_mask_image[mask] = gold_shades
+    
+    plt.figure(figsize=(15, 5))
+
+    plt.subplot(1, 3, 1)
+    plt.title('Original Image')
+    plt.imshow(image_rgb)
+    plt.axis('off')
+
+    plt.subplot(1, 3, 2)
+    plt.title('Approximated Image')
+    plt.imshow(approximated_image)
+    plt.axis('off')
+
+    plt.subplot(1, 3, 3)
+    plt.title('Gold Masked Image')
+    plt.imshow(gold_mask_image)
+    plt.axis('off')
+
+    plt.show()
+    
+    gold_mask_image = cv2.cvtColor(gold_mask_image, cv2.COLOR_RGB2BGR)
+    approximated_image = cv2.cvtColor(approximated_image, cv2.COLOR_RGB2BGR)
+
+    
+    cv2.imwrite('approximated_image.png', approximated_image)
+    cv2.imwrite('masked_image_gold.png', gold_mask_image)
+    
+    return approximated_image, gold_mask_image, mask
+
+
+def find_center_mass(approximated_image, mask, n_clusters = 6):
+    gold_pixels_coordinates = np.argwhere(mask)
+    
+    if len(gold_pixels_coordinates) > 0:
+        kmeans = KMeans(n_clusters=n_clusters, random_state=42).fit(gold_pixels_coordinates)
+        centroids = kmeans.cluster_centers_
+        
+        for centroid in centroids:
+            cv2.circle(approximated_image, (int(centroid[1]), int(centroid[0])), 10, (0, 0, 255), -1)
+        cv2.imwrite('image_with_centroids.png', approximated_image)
+        
+        return centroids
+        
+
+def denoiser(image):
+    # Разделение цветовых каналов
+    b, g, r = cv2.split(image)
+
+    # Применение медианного фильтра к каждому каналу
+    b_median = cv2.medianBlur(b, 5)
+    g_median = cv2.medianBlur(g, 5)
+    r_median = cv2.medianBlur(r, 5)
+
+    # Применение морфологических операций к каждому каналу
+    kernel = np.ones((5,5), np.uint8)
+    b_morph = cv2.morphologyEx(b_median, cv2.MORPH_CLOSE, kernel)
+    g_morph = cv2.morphologyEx(g_median, cv2.MORPH_CLOSE, kernel)
+    r_morph = cv2.morphologyEx(r_median, cv2.MORPH_CLOSE, kernel)
+
+    # Объединение каналов обратно
+    result = cv2.merge((b_morph, g_morph, r_morph))
+
+    # Сохранение результата в файл
+    output_path = 'denoised_image.png'
+    cv2.imwrite(output_path, result)
+    
+    return result
 
 if __name__ == '__main__':
     image_source, gray_source, blurred_source, edges_source = pre_process_image(source_image_path)
@@ -90,12 +176,11 @@ if __name__ == '__main__':
     largest_contour = max(largest_contour, key=cv2.contourArea)
     
     masked_image = mask_space_out_of_darts(largest_contour, image_source, gray_source)
-    cv2.imwrite('masked_image.png', masked_image)
+    cv2.imwrite(image_without_background_path, masked_image)
     print(f'Image without background saved as {image_without_background_path}')
-    
-    
-    
+
     new_image, new_gray, new_blurred, new_edges = pre_process_image(image_without_background_path)
+
     # finding contours
     contours, _ = cv2.findContours(new_edges, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
     length_of_contours = [len(contour) for contour in contours]
@@ -111,13 +196,23 @@ if __name__ == '__main__':
     cv2.drawContours(new_contour_image, top_contours, -1, (0, 255, 0), 3)
     
     # Extracting colors
-    palette = extract_colors(image=image_without_background_path, palette_size=5, resize = True)
+    # TODO Denoiser
+    
+    filtered_image  = denoiser(new_image)
+    filtered_image_pil = Image.fromarray(cv2.cvtColor(filtered_image, cv2.COLOR_BGR2RGB))
+    palette = extract_colors(image=filtered_image_pil, palette_size=10, resize = True)
     palette.display(save_to_file=False)
     main_colors = [color.rgb for color in palette]
-    print(main_colors)
     
     # Create masks for each color
     define_colors(new_image)
+    
+    main_colors = [[*color] for color in main_colors]
+    print(main_colors)
+    approximated_image, gold_mask_image, mask = colorizing_image_in_5_shades(new_image, main_colors)
+    
+    centroids = find_center_mass(approximated_image, mask)
+    print(f'Centroids: {centroids}')
     
     
     # Save the result
