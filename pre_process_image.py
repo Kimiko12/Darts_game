@@ -70,12 +70,17 @@ def find_colors(image, color_ranges):
     return color_masks
 
 def define_colors(image):
+    rgb_colors = [
+        [148, 135, 77],
+        [103, 80, 56]
+    ]
+    
+    hsv_colors = [cv2.cvtColor(np.uint8([[color]]), cv2.COLOR_RGB2HSV)[0][0] for color in rgb_colors]
+    
     color_ranges = {
             'red': (np.array([0, 70, 50]), np.array([10, 255, 255])),
             'green': (np.array([40, 70, 50]), np.array([80, 255, 255])),
-            'blue': (np.array([90, 70, 50]), np.array([130, 255, 255])),
-            'gold': (np.array([26, 100, 50]), np.array([30, 255, 200])),
-            'gold_2': (np.array([32, 100, 100]), np.array([36, 255, 255]))
+            'brown': (np.array([10, 100, 50]), np.array([20, 200, 150]))
         }
         
     color_masks = find_colors(image, color_ranges)
@@ -83,6 +88,8 @@ def define_colors(image):
     # Display the masks
     for color_name, mask in color_masks.items():
         cv2.imwrite(f'{color_name}_mask.png', mask)
+        
+    return color_masks
         
 def KNN(pixel, palette):
     distances = np.sqrt(np.sum((pixel - palette)**2, axis=1))
@@ -145,29 +152,29 @@ def find_center_mass(approximated_image, mask, n_clusters = 6):
         return centroids
         
 
-def denoiser(image):
-    # Разделение цветовых каналов
-    b, g, r = cv2.split(image)
+# def denoiser(image):
+#     # Разделение цветовых каналов
+#     b, g, r = cv2.split(image)
 
-    # Применение медианного фильтра к каждому каналу
-    b_median = cv2.medianBlur(b, 5)
-    g_median = cv2.medianBlur(g, 5)
-    r_median = cv2.medianBlur(r, 5)
+#     # Применение медианного фильтра к каждому каналу
+#     b_median = cv2.medianBlur(b, 5)
+#     g_median = cv2.medianBlur(g, 5)
+#     r_median = cv2.medianBlur(r, 5)
 
-    # Применение морфологических операций к каждому каналу
-    kernel = np.ones((5,5), np.uint8)
-    b_morph = cv2.morphologyEx(b_median, cv2.MORPH_CLOSE, kernel)
-    g_morph = cv2.morphologyEx(g_median, cv2.MORPH_CLOSE, kernel)
-    r_morph = cv2.morphologyEx(r_median, cv2.MORPH_CLOSE, kernel)
+#     # Применение морфологических операций к каждому каналу
+#     kernel = np.ones((5,5), np.uint8)
+#     b_morph = cv2.morphologyEx(b_median, cv2.MORPH_CLOSE, kernel)
+#     g_morph = cv2.morphologyEx(g_median, cv2.MORPH_CLOSE, kernel)
+#     r_morph = cv2.morphologyEx(r_median, cv2.MORPH_CLOSE, kernel)
 
-    # Объединение каналов обратно
-    result = cv2.merge((b_morph, g_morph, r_morph))
+#     # Объединение каналов обратно
+#     result = cv2.merge((b_morph, g_morph, r_morph))
 
-    # Сохранение результата в файл
-    output_path = 'denoised_image.png'
-    cv2.imwrite(output_path, result)
+#     # Сохранение результата в файл
+#     output_path = 'denoised_image.png'
+#     cv2.imwrite(output_path, result)
     
-    return result
+#     return result
 
 if __name__ == '__main__':
     image_source, gray_source, blurred_source, edges_source = pre_process_image(source_image_path)
@@ -198,14 +205,13 @@ if __name__ == '__main__':
     # Extracting colors
     # TODO Denoiser
     
-    filtered_image  = denoiser(new_image)
-    filtered_image_pil = Image.fromarray(cv2.cvtColor(filtered_image, cv2.COLOR_BGR2RGB))
-    palette = extract_colors(image=filtered_image_pil, palette_size=10, resize = True)
-    palette.display(save_to_file=False)
-    main_colors = [color.rgb for color in palette]
-    
     # Create masks for each color
     define_colors(new_image)
+    print('Masks ready !!!')
+    
+    palette = extract_colors(image=image_without_background_path, palette_size=5, resize = True)
+    palette.display(save_to_file=False)
+    main_colors = [color.rgb for color in palette]
     
     main_colors = [[*color] for color in main_colors]
     print(main_colors)
