@@ -141,20 +141,23 @@ def colorizing_image_in_10_shades(image, palette):
         
 #         return centroids
 
-def find_center_mass(approximated_image, mask, n_clusters=6):
-    gold_pixels_coordinates = np.argwhere(mask > 0)
+def find_center_mass(image, mask, n_clusters=6):
+    # Находим координаты всех пикселей, принадлежащих маске
+    pixel_coords = np.argwhere(mask > 0)
     
-    if len(gold_pixels_coordinates) > 0:
-        kmeans = KMeans(n_clusters=n_clusters, random_state=42).fit(gold_pixels_coordinates)
+    if len(pixel_coords) > 0:
+        # Применяем KMeans для кластеризации пикселей в заданное число кластеров
+        kmeans = KMeans(n_clusters=n_clusters, random_state=42).fit(pixel_coords)
         centroids = kmeans.cluster_centers_
         
+        # Отображаем центры кластеров на изображении
         for centroid in centroids:
-            cv2.circle(approximated_image, (int(centroid[1]), int(centroid[0])), 10, (0, 0, 255), -1)
-        cv2.imwrite('/mnt/data/image_with_centroids.png', approximated_image)
+            cv2.circle(image, (int(centroid[1]), int(centroid[0])), 10, (0, 0, 255), -1)
+        cv2.imwrite('/mnt/data/image_with_centroids.png', image)
         
         return centroids
     else:
-        print("No gold pixels found in the mask.")
+        print("No target pixels found in the mask.")
         return None
     
     
@@ -191,34 +194,9 @@ def denoiser(image):
     cv2.imwrite(output_path, result)
     
     # cleaned_bgr = replace_outliers_with_mode(result, count_of_neighbors = 5, threshold = 100)
-    cleaned_bgr = remove_black_dots(result, kernel_size = 5, iterations = 1)
-    cv2.imwrite('cleaned_bgr.png', cleaned_bgr)
     
     return result
 
-def remove_black_dots(image, kernel_size, iterations):
-    # Convert to grayscale
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    
-    # Invert the image
-    inverted = cv2.bitwise_not(gray)
-    
-    # Create a structuring element (kernel)
-    kernel = np.ones((kernel_size, kernel_size), np.uint8)
-    
-    # Perform closing (dilation followed by erosion)
-    closed = cv2.morphologyEx(inverted, cv2.MORPH_CLOSE, kernel, iterations=iterations)
-    
-    # Invert the closed image back
-    closed_inverted = cv2.bitwise_not(closed)
-    
-    # Subtract the closed inverted image from the original image
-    cleaned = cv2.subtract(gray, closed_inverted)
-    
-    # Convert back to BGR
-    cleaned_bgr = cv2.cvtColor(cleaned, cv2.COLOR_GRAY2BGR)
-    
-    return cleaned_bgr
 
 def find_mode(neighbors):
     if len(neighbors) == 0:
@@ -252,7 +230,28 @@ def replace_outliers_with_mode(img, count_of_neighbors=8, threshold=200):
     
     return output_img
 
+def find_target_center(new_image, largest_contour):
+    M = cv2.moments(largest_contour)
+    if M['m00'] != 0:
+        cX = int(M["m10"] / M["m00"])
+        cY = int(M["m01"] / M["m00"] + 40)
+        
+        area = cv2.contourArea(largest_contour)
+        perimeter = cv2.arcLength(largest_contour, True)
+        circularity = 4 * np.pi * (area / (perimeter * perimeter))
+        
+        if 0.7 < circularity < 1.3:
+                # Draw the contour and center of the circle
+                cv2.drawContours(new_image, [largest_contour], -1, (0, 255, 0), 2)
+                cv2.circle(new_image, (cX, cY), 5, (255, 0, 0), -1)
+                cv2.putText(new_image, "center", (cX - 20, cY - 20),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
 
+                # Save the result image
+                cv2.imwrite('image_with_center.png', new_image)
+                
+                return (cX, cY)
+    
 if __name__ == '__main__':
     image_source, gray_source, blurred_source, edges_source = pre_process_image(source_image_path)
     contours_source, _ = cv2.findContours(edges_source, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
@@ -264,6 +263,8 @@ if __name__ == '__main__':
     print(f'Image without background saved as {image_without_background_path}')
 
     new_image, new_gray, new_blurred, new_edges = pre_process_image(image_without_background_path)
+    # find center of board
+    (cx, cy) = find_target_center(new_image, largest_contour)
 
     # finding contours
     contours, _ = cv2.findContours(new_edges, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
