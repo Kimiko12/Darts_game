@@ -323,7 +323,28 @@ def detect_circles(image_path):
     cv2.imwrite('detected_circles.png', output)
     
     
-def calculate_distance(cx, cy, radius): 
+def calculate_distance(cx, cy, radii, centroids):
+    points = {}
+    for i, centroid in enumerate(centroids):
+        distance = np.linalg.norm(centroid - np.array([cx, cy]))
+        if distance < radii[0]:
+            points[f'point_{i}'] = 100
+        elif distance <= radii[1] and distance > radii[0]:
+            points[f'point_{i}'] = 80
+        elif distance <= radii[2] and distance > radii[1]:
+            points[f'point_{i}'] = 60
+        elif distance <= radii[3] and distance > radii[2]:
+            points[f'point_{i}'] = 50
+        elif distance <= radii[4] and distance > radii[3]:
+            points[f'point_{i}'] = 40
+        elif distance <= radii[5] and distance > radii[4]:
+            points[f'point_{i}'] = 30
+        elif distance <= radii[6] and distance > radii[5]:
+            points[f'point_{i}'] = 20
+        elif distance >= radii[7]:
+            points[f'point_{i}'] = 10
+    return points 
+        
 
 
 if __name__ == '__main__':
@@ -415,9 +436,11 @@ if __name__ == '__main__':
     else:
         print('No valid radii found')
         
-        
-    
-
+    radii = [r for r, _ in sorted_radius_contours]
+    print(cx, cy, radii, centroids)
+    # calculate distance
+    points = calculate_distance(cx, cy, radii, centroids)
+    print(f'Points: {points}')
 
 
     # # Draw the detected circles
