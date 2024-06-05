@@ -129,27 +129,47 @@ def colorizing_image_in_10_shades(image, palette):
     return approximated_image, gold_mask_image, mask
 
 
-# def find_center_mass(approximated_image, mask, n_clusters = 6):
-#     gold_pixels_coordinates = np.argwhere(mask)
+# def find_centers_of_clusters(new_image, target_mask, n_clusters=6, threshold = 0.8):
+#     delta = 0.01
+#     gold_pixels_coordinates = np.argwhere(target_mask)
+#     print(gold_pixels_coordinates)
     
+#     block_size = 8
+#     block_size_for_centers = 4
+    
+#     block = np.zeros((block_size, block_size), dtype='uint8')
+#     print("Block Shape:", block.shape[0])
+    
+#     block_for_centers = np.zeros((block_size_for_centers, block_size_for_centers, 3), dtype='uint8')
+    
+#     centers = []
 #     if len(gold_pixels_coordinates) > 0:
-#         kmeans = KMeans(n_clusters=n_clusters, random_state=42).fit(gold_pixels_coordinates)
-#         centroids = kmeans.cluster_centers_
-        
-#         for centroid in centroids:
-#             cv2.circle(approximated_image, (int(centroid[1]), int(centroid[0])), 10, (0, 0, 255), -1)
-#         cv2.imwrite('image_with_centroids.png', approximated_image)
-        
-#         return centroids
+#         for i in range(0, target_mask.shape[0], block_size):
+#             for j in range(0, target_mask.shape[1], block_size):
+#                 block_mask = target_mask[i:i+block_size, j:j+block_size]
+#                 total_pixels = block_mask.size
+#                 white_pixels = np.sum(block_mask > 0)
+#                 if white_pixels / total_pixels >= threshold:
+#                     center = center_of_mass(block_mask)
+#                     centers.append(center)
+#                     cv2.circle(new_image, (int(center[1]) + j, int(center[0]) + i), 5, (0, 255, 0), -1)
+#     cv2.imwrite('image_with_centroids.png', new_image)
+#     return gold_pixels_coordinates
 
-def find_centers_of_clusters(new_image, target_mask, n_clusters=6, threshold = 0.8):
+
+def find_centers_of_clusters(new_image, target_mask, n_clusters=6, threshold=0.8, delta=0.1):
     gold_pixels_coordinates = np.argwhere(target_mask)
     print(gold_pixels_coordinates)
     
     block_size = 8
+    block_size_for_centers = 4
+    
     block = np.zeros((block_size, block_size), dtype='uint8')
     print("Block Shape:", block.shape[0])
     
+    block_for_centers = np.zeros((block_size_for_centers, block_size_for_centers, 3), dtype='uint8')
+    
+    centers = []
     if len(gold_pixels_coordinates) > 0:
         for i in range(0, target_mask.shape[0], block_size):
             for j in range(0, target_mask.shape[1], block_size):
@@ -158,10 +178,13 @@ def find_centers_of_clusters(new_image, target_mask, n_clusters=6, threshold = 0
                 white_pixels = np.sum(block_mask > 0)
                 if white_pixels / total_pixels >= threshold:
                     center = center_of_mass(block_mask)
-                    cv2.circle(new_image, (int(center[1]) + j, int(center[0]) + i), 5, (0, 255, 0), -1)
-                    
+                    if not any(np.linalg.norm(np.array(center) - np.array(existing_center)) < delta 
+                               for existing_center in centers):
+                        centers.append(center)
+                        cv2.circle(new_image, (int(center[1]) + j, int(center[0]) + i), 5, (0, 255, 0), -1)
+    
     cv2.imwrite('image_with_centroids.png', new_image)
-    return gold_pixels_coordinates
+    return centers
     
 def mask_denoiser(golden_mask, iterations, kernel_size):
     kernel = np.ones((kernel_size, kernel_size), np.uint8)
