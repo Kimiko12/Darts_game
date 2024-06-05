@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 
-source_image_path = '/home/nikolay/It_Jim/darts_game/IMG_20240510_172748.jpg'
+source_image_path = '/home/nikolay/ML/It_Jim/Darts_game/images/IMG_20240510_172930.jpg'
 image_without_background_path = '/home/nikolay/It_Jim/darts_game/masked_image.png'
 
 def find_largest_contour(contours):

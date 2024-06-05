@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from sklearn.cluster import KMeans
 from Pylette import extract_colors
 from PIL import Image
+from scipy import stats
 
 source_image_path = '/home/nikolay/ML/It_Jim/Darts_game/images/IMG_20240510_172748.jpg'
 image_without_background_path = '/home/nikolay/ML/It_Jim/Darts_game/masked_image.png'
@@ -75,12 +76,16 @@ def define_colors(image, kernel_size, iterations):
         [103, 80, 56]
     ]
     
+    target_rgb = np.uint8([[[87, 77, 56]]])
+    target_hsv = cv2.cvtColor(target_rgb, cv2.COLOR_RGB2HSV)[0][0]
+    
     hsv_colors = [cv2.cvtColor(np.uint8([[color]]), cv2.COLOR_RGB2HSV)[0][0] for color in rgb_colors]
     
     color_ranges = {
             'red': (np.array([0, 70, 50]), np.array([10, 255, 255])),
             'green': (np.array([40, 70, 50]), np.array([80, 255, 255])),
-            'brown': (np.array([10, 100, 50]), np.array([20, 200, 150]))
+            'brown': (np.array([10, 100, 50]), np.array([20, 200, 150])),
+            'target': (np.array([max(0, target_hsv[0] - 10), max(0, target_hsv[1] - 40), max(0, target_hsv[2] - 40)]), np.array([min(179, target_hsv[0] + 10), min(255, target_hsv[1] + 40), min(255, target_hsv[2] + 40)]))
         }
         
     color_masks = find_colors(image, color_ranges)
@@ -88,11 +93,12 @@ def define_colors(image, kernel_size, iterations):
     # Display the masks
     print('Cleaning golden mask')
     for color_name, mask in color_masks.items():
-        if color_name == 'brown':
+        if color_name == 'brown' or color_name == 'target':
             mask = mask_denoiser(mask, iterations, kernel_size)
         cv2.imwrite(f'{color_name}_mask.png', mask)
         
     return color_masks
+
         
 def KNN(pixel, palette):
     distances = np.sqrt(np.sum((pixel - palette)**2, axis=1))
@@ -100,7 +106,7 @@ def KNN(pixel, palette):
     return nearest_color
 
 
-def colorizing_image_in_5_shades(image, palette):
+def colorizing_image_in_10_shades(image, palette):
     image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     pixels = image_rgb.reshape(-1, 3)
     approximated_pixels = np.array([KNN(pixel, palette) for pixel in pixels], dtype = 'uint8')
@@ -112,25 +118,6 @@ def colorizing_image_in_5_shades(image, palette):
     gold_mask_image = np.zeros_like(image_rgb, dtype = 'uint8')
     gold_mask_image[mask] = gold_shades
     
-    plt.figure(figsize=(15, 5))
-
-    plt.subplot(1, 3, 1)
-    plt.title('Original Image')
-    plt.imshow(image_rgb)
-    plt.axis('off')
-
-    plt.subplot(1, 3, 2)
-    plt.title('Approximated Image')
-    plt.imshow(approximated_image)
-    plt.axis('off')
-
-    plt.subplot(1, 3, 3)
-    plt.title('Gold Masked Image')
-    plt.imshow(gold_mask_image)
-    plt.axis('off')
-
-    plt.show()
-    
     gold_mask_image = cv2.cvtColor(gold_mask_image, cv2.COLOR_RGB2BGR)
     approximated_image = cv2.cvtColor(approximated_image, cv2.COLOR_RGB2BGR)
 
@@ -141,8 +128,21 @@ def colorizing_image_in_5_shades(image, palette):
     return approximated_image, gold_mask_image, mask
 
 
-def find_center_mass(approximated_image, mask, n_clusters = 6):
-    gold_pixels_coordinates = np.argwhere(mask)
+# def find_center_mass(approximated_image, mask, n_clusters = 6):
+#     gold_pixels_coordinates = np.argwhere(mask)
+    
+#     if len(gold_pixels_coordinates) > 0:
+#         kmeans = KMeans(n_clusters=n_clusters, random_state=42).fit(gold_pixels_coordinates)
+#         centroids = kmeans.cluster_centers_
+        
+#         for centroid in centroids:
+#             cv2.circle(approximated_image, (int(centroid[1]), int(centroid[0])), 10, (0, 0, 255), -1)
+#         cv2.imwrite('image_with_centroids.png', approximated_image)
+        
+#         return centroids
+
+def find_center_mass(approximated_image, mask, n_clusters=6):
+    gold_pixels_coordinates = np.argwhere(mask > 0)
     
     if len(gold_pixels_coordinates) > 0:
         kmeans = KMeans(n_clusters=n_clusters, random_state=42).fit(gold_pixels_coordinates)
@@ -150,9 +150,13 @@ def find_center_mass(approximated_image, mask, n_clusters = 6):
         
         for centroid in centroids:
             cv2.circle(approximated_image, (int(centroid[1]), int(centroid[0])), 10, (0, 0, 255), -1)
-        cv2.imwrite('image_with_centroids.png', approximated_image)
+        cv2.imwrite('/mnt/data/image_with_centroids.png', approximated_image)
         
         return centroids
+    else:
+        print("No gold pixels found in the mask.")
+        return None
+    
     
 def mask_denoiser(golden_mask, iterations, kernel_size):
     kernel = np.ones((kernel_size, kernel_size), np.uint8)
@@ -186,6 +190,7 @@ def denoiser(image):
     output_path = 'denoised_image.png'
     cv2.imwrite(output_path, result)
     
+    # cleaned_bgr = replace_outliers_with_mode(result, count_of_neighbors = 5, threshold = 100)
     cleaned_bgr = remove_black_dots(result, kernel_size = 5, iterations = 1)
     cv2.imwrite('cleaned_bgr.png', cleaned_bgr)
     
@@ -215,6 +220,39 @@ def remove_black_dots(image, kernel_size, iterations):
     
     return cleaned_bgr
 
+def find_mode(neighbors):
+    if len(neighbors) == 0:
+        return None
+    neighbors_array = np.array(neighbors)
+    mode_result = stats.mode(neighbors_array, axis=0)
+    mode_color = mode_result.mode[0]
+    count = mode_result.count[0]
+    if np.all(count > 1):
+        return mode_color.astype(int)
+    return None
+
+
+def replace_outliers_with_mode(img, count_of_neighbors=8, threshold=200):
+    output_img = img.copy()
+    rows, cols = img.shape[:2]
+    # Padding the image to avoid boundary issues
+    padded_img = np.pad(img, ((1, 1), (1, 1), (0, 0)), mode='reflect')
+    
+    for y in range(1, rows + 1):
+        for x in range(1, cols + 1):
+            current_pixel = padded_img[y, x][:3]
+            neighbors = padded_img[y-1:y+2, x-1:x+2, :3].reshape(-1, 3)
+            neighbors = np.delete(neighbors, 4, axis=0)  # Remove the center pixel
+            diff = np.mean(np.abs(neighbors - current_pixel), axis=1)
+            flag = np.sum(diff > threshold)
+            if flag >= count_of_neighbors:
+                mode_color = find_mode(neighbors)
+                if mode_color is not None:
+                    output_img[y-1, x-1][:3] = mode_color  # Adjust indices due to padding
+    
+    return output_img
+
+
 if __name__ == '__main__':
     image_source, gray_source, blurred_source, edges_source = pre_process_image(source_image_path)
     contours_source, _ = cv2.findContours(edges_source, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
@@ -243,32 +281,30 @@ if __name__ == '__main__':
     
     # Extracting colors
     # TODO Denoiser
-    filtered_image = denoiser(new_image)
+    # filtered_image = denoiser(new_image)
     
     # Create masks for each color
     color_masks = define_colors(new_image, kernel_size = 5, iterations = 1)
     print('Masks ready !!!')
     
     for color_name, mask in color_masks.items():
-        if color_name == 'brown':
-            brown_mask = mask
+        if color_name == 'target':
+            target_mask = mask
         if color_name == 'red':
             red_mask = mask
         if color_name == 'green':
             green_mask = mask
-            
     
-    
-    palette = extract_colors(image=image_without_background_path, palette_size=5, resize = True)
+    palette = extract_colors(image=image_without_background_path, palette_size=10, resize = True)
     palette.display(save_to_file=False)
     main_colors = [color.rgb for color in palette]
     
-    main_colors = [[*color] for color in main_colors]
-    print(main_colors)
-    approximated_image, gold_mask_image, mask = colorizing_image_in_5_shades(filtered_image, main_colors)
+    # main_colors = [[*color] for color in main_colors]
+    # print(main_colors)
+    # approximated_image, gold_mask_image, mask = colorizing_image_in_10_shades(new_image, main_colors)
     
-    # centroids = find_center_mass(approximated_image, mask)
-    # print(f'Centroids: {centroids}')
+    centroids = find_center_mass(new_image, target_mask)
+    print(f'Centroids: {centroids}')
     
     
     # # Save the result
