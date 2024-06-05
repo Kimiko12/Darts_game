@@ -69,7 +69,7 @@ def find_colors(image, color_ranges):
         color_masks[color_name] = mask
     return color_masks
 
-def define_colors(image):
+def define_colors(image, kernel_size, iterations):
     rgb_colors = [
         [148, 135, 77],
         [103, 80, 56]
@@ -86,7 +86,10 @@ def define_colors(image):
     color_masks = find_colors(image, color_ranges)
     
     # Display the masks
+    print('Cleaning golden mask')
     for color_name, mask in color_masks.items():
+        if color_name == 'brown':
+            mask = mask_denoiser(mask, iterations, kernel_size)
         cv2.imwrite(f'{color_name}_mask.png', mask)
         
     return color_masks
@@ -103,7 +106,7 @@ def colorizing_image_in_5_shades(image, palette):
     approximated_pixels = np.array([KNN(pixel, palette) for pixel in pixels], dtype = 'uint8')
     approximated_image = approximated_pixels.reshape(image_rgb.shape)
     
-    gold_shades = palette[7]
+    gold_shades = palette[-1]
     mask = np.all(approximated_image == gold_shades, axis = -1)
     
     gold_mask_image = np.zeros_like(image_rgb, dtype = 'uint8')
@@ -150,31 +153,40 @@ def find_center_mass(approximated_image, mask, n_clusters = 6):
         cv2.imwrite('image_with_centroids.png', approximated_image)
         
         return centroids
+    
+def mask_denoiser(golden_mask, iterations, kernel_size):
+    kernel = np.ones((kernel_size, kernel_size), np.uint8)
+    eroded_mask = cv2.erode(golden_mask, kernel=kernel, iterations=iterations)
+    cleaned_mask = cv2.dilate(eroded_mask, kernel=kernel, iterations=iterations * 2)
+    
+    cv2.imwrite('cleaned_mask.png', cleaned_mask)
+    return cleaned_mask
+    
         
 
-# def denoiser(image):
-#     # Разделение цветовых каналов
-#     b, g, r = cv2.split(image)
+def denoiser(image):
+    # Разделение цветовых каналов
+    b, g, r = cv2.split(image)
 
-#     # Применение медианного фильтра к каждому каналу
-#     b_median = cv2.medianBlur(b, 5)
-#     g_median = cv2.medianBlur(g, 5)
-#     r_median = cv2.medianBlur(r, 5)
+    # Применение медианного фильтра к каждому каналу
+    b_median = cv2.medianBlur(b, 5)
+    g_median = cv2.medianBlur(g, 5)
+    r_median = cv2.medianBlur(r, 5)
 
-#     # Применение морфологических операций к каждому каналу
-#     kernel = np.ones((5,5), np.uint8)
-#     b_morph = cv2.morphologyEx(b_median, cv2.MORPH_CLOSE, kernel)
-#     g_morph = cv2.morphologyEx(g_median, cv2.MORPH_CLOSE, kernel)
-#     r_morph = cv2.morphologyEx(r_median, cv2.MORPH_CLOSE, kernel)
+    # Применение морфологических операций к каждому каналу
+    kernel = np.ones((5,5), np.uint8)
+    b_morph = cv2.morphologyEx(b_median, cv2.MORPH_CLOSE, kernel)
+    g_morph = cv2.morphologyEx(g_median, cv2.MORPH_CLOSE, kernel)
+    r_morph = cv2.morphologyEx(r_median, cv2.MORPH_CLOSE, kernel)
 
-#     # Объединение каналов обратно
-#     result = cv2.merge((b_morph, g_morph, r_morph))
+    # Объединение каналов обратно
+    result = cv2.merge((b_morph, g_morph, r_morph))
 
-#     # Сохранение результата в файл
-#     output_path = 'denoised_image.png'
-#     cv2.imwrite(output_path, result)
+    # Сохранение результата в файл
+    output_path = 'denoised_image.png'
+    cv2.imwrite(output_path, result)
     
-#     return result
+    return result
 
 if __name__ == '__main__':
     image_source, gray_source, blurred_source, edges_source = pre_process_image(source_image_path)
@@ -206,16 +218,17 @@ if __name__ == '__main__':
     # TODO Denoiser
     
     # Create masks for each color
-    define_colors(new_image)
+    define_colors(new_image, kernel_size = 5, iterations = 1)
     print('Masks ready !!!')
     
     palette = extract_colors(image=image_without_background_path, palette_size=5, resize = True)
     palette.display(save_to_file=False)
     main_colors = [color.rgb for color in palette]
     
+    filtered_image = denoiser(new_image)
     main_colors = [[*color] for color in main_colors]
     print(main_colors)
-    approximated_image, gold_mask_image, mask = colorizing_image_in_5_shades(new_image, main_colors)
+    approximated_image, gold_mask_image, mask = colorizing_image_in_5_shades(filtered_image, main_colors)
     
     centroids = find_center_mass(approximated_image, mask)
     print(f'Centroids: {centroids}')
