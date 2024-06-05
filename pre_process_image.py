@@ -28,19 +28,32 @@ def find_largest_contour(contours):
 
 
 def detect_radius(contours, center_x, center_y, ring_distance=20):
-    detected_radii = []
+    corresponding_contours_radii = []
     for contour in contours:
         (x, y), radius = cv2.minEnclosingCircle(contour)
         distance_to_center = np.sqrt((x - center_x)**2 + (y - center_y)**2)
-        detected_radii.append(int(radius))
+        corresponding_contours_radii.append((distance_to_center, int(radius), contour))
     
-    detected_radii = sorted(detected_radii)
+    # Sort based on the distance to the center
+    detected_radii = sorted(corresponding_contours_radii, key=lambda x: x[0])
     
-    differences = np.diff(detected_radii)
+    # Extract radii and contours after sorting
+    sorted_radii = [radius for _, radius, _ in detected_radii]
+    sorted_contours = [contour for _, _, contour in detected_radii]
     
-    matching_radii = [detected_radii[i+1] for i, diff in enumerate(differences) if diff >= ring_distance]
+    # Calculate differences between successive radii
+    differences = np.diff(sorted_radii)
     
-    return matching_radii
+    # Find matching radii and corresponding contours based on ring distance
+    matching_radii = []
+    matching_contours = []
+    
+    for i, diff in enumerate(differences):
+        if diff >= ring_distance:
+            matching_radii.append(sorted_radii[i+1])
+            matching_contours.append(sorted_contours[i+1])
+    
+    return matching_radii, matching_contours
 
 def mask_space_out_of_darts(largest_contour, image, gray):
     mask = np.zeros_like(gray)
@@ -157,7 +170,7 @@ def colorizing_image_in_10_shades(image, palette):
 #     return gold_pixels_coordinates
 
 
-def find_centers_of_clusters(new_image, target_mask, n_clusters=6, threshold=0.8, delta=0.1):
+def find_centers_of_clusters(new_image, target_mask, threshold=0.8, delta=50):
     gold_pixels_coordinates = np.argwhere(target_mask)
     print(gold_pixels_coordinates)
     
@@ -170,6 +183,7 @@ def find_centers_of_clusters(new_image, target_mask, n_clusters=6, threshold=0.8
     block_for_centers = np.zeros((block_size_for_centers, block_size_for_centers, 3), dtype='uint8')
     
     centers = []
+    
     if len(gold_pixels_coordinates) > 0:
         for i in range(0, target_mask.shape[0], block_size):
             for j in range(0, target_mask.shape[1], block_size):
@@ -178,11 +192,11 @@ def find_centers_of_clusters(new_image, target_mask, n_clusters=6, threshold=0.8
                 white_pixels = np.sum(block_mask > 0)
                 if white_pixels / total_pixels >= threshold:
                     center = center_of_mass(block_mask)
-                    if not any(np.linalg.norm(np.array(center) - np.array(existing_center)) < delta 
-                               for existing_center in centers):
-                        centers.append(center)
-                        cv2.circle(new_image, (int(center[1]) + j, int(center[0]) + i), 5, (0, 255, 0), -1)
-    
+                    global_center = (center[0] + i, center[1] + j)
+                    if not any(np.linalg.norm(np.array(global_center) - np.array(existing_center)) < delta for existing_center in centers):
+                        centers.append(global_center)
+                        cv2.circle(new_image, (int(global_center[1]), int(global_center[0])), 5, (0, 255, 0), -1)
+                
     cv2.imwrite('image_with_centroids.png', new_image)
     return centers
     
@@ -275,8 +289,43 @@ def find_target_center(new_image, largest_contour):
                 # Save the result image
                 cv2.imwrite('image_with_center.png', new_image)
                 
-                return (cX, cY)
+                return cX, cY
+            
+            
+def detect_circles(image_path):
+    # Загрузить изображение
+    image = cv2.imread(image_path)
+    output = image.copy()
     
+    # Преобразовать изображение в градации серого
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    
+    # Применить размытие для снижения шума
+    gray_blurred = cv2.medianBlur(gray, 5)
+    
+    # Найти круги с использованием алгоритма Хафа
+    circles = cv2.HoughCircles(
+        gray_blurred, 
+        cv2.HOUGH_GRADIENT, dp=1, minDist=20, 
+        param1=50, param2=30, minRadius=0, maxRadius=0
+    )
+    
+    # Если круги найдены, обработать их
+    if circles is not None:
+        circles = np.uint16(np.around(circles))
+        for i in circles[0, :]:
+            # Нарисовать внешний круг
+            cv2.circle(output, (i[0], i[1]), i[2], (0, 255, 0), 2)
+            # Нарисовать центр круга
+            cv2.circle(output, (i[0], i[1]), 2, (0, 0, 255), 3)
+    
+    # Сохранить результат
+    cv2.imwrite('detected_circles.png', output)
+    
+    
+def calculate_distance(cx, cy, radius): 
+
+
 if __name__ == '__main__':
     image_source, gray_source, blurred_source, edges_source = pre_process_image(source_image_path)
     contours_source, _ = cv2.findContours(edges_source, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
@@ -289,10 +338,12 @@ if __name__ == '__main__':
 
     new_image, new_gray, new_blurred, new_edges = pre_process_image(image_without_background_path)
     # find center of board
-    (cx, cy) = find_target_center(new_image, largest_contour)
+    cx, cy = find_target_center(new_image, largest_contour)
 
     # finding contours
-    contours, _ = cv2.findContours(new_edges, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    contours, _ = cv2.findContours(new_edges, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
+    # detect_circles(image_without_background_path)
+   
     length_of_contours = [len(contour) for contour in contours]
     print(sorted(length_of_contours))
     top_contours = []
@@ -303,7 +354,9 @@ if __name__ == '__main__':
             top_contours.append(contour)
     print(f'Number of contours: {i}')
     new_contour_image = new_image.copy()
+    print(f'number of top contours: {len(top_contours)}')
     cv2.drawContours(new_contour_image, top_contours, -1, (0, 255, 0), 3)
+    cv2.imwrite('select_contour_image.png', new_contour_image)
     
     # Extracting colors
     # TODO Denoiser
@@ -329,7 +382,7 @@ if __name__ == '__main__':
     # print(main_colors)
     # approximated_image, gold_mask_image, mask = colorizing_image_in_10_shades(new_image, main_colors)
     
-    centroids = find_centers_of_clusters(new_image, target_mask, n_clusters=6, threshold = 0.7)
+    centroids = find_centers_of_clusters(new_image, target_mask, threshold=0.7)
     print(f'Centroids: {centroids}')
     
     
@@ -344,9 +397,29 @@ if __name__ == '__main__':
     # center_x = int(M['m10'] / M['m00'])
     # center_y = int(M['m01'] / M['m00'])
     
-    # radius = detect_radius(circul_contours, center_x, center_y)
-    # print(radius)
+    matching_radii, matching_contours = detect_radius(contours, cx, cy, ring_distance=20)
+    print(f'Matching radii: {matching_radii}, Matching contours: {len(matching_contours)}')
+
+    sorted_radius_contours = []
+    for r, contour in zip(matching_radii, matching_contours):
+        if r < 50 or any(abs(r - radius) < 50 for radius, _ in sorted_radius_contours):
+            continue
+        sorted_radius_contours.append((r, contour))
+
+    sorted_radius_contours = sorted(sorted_radius_contours, key=lambda x: x[0])
+
+    if sorted_radius_contours:
+        for radius, contour in sorted_radius_contours:
+            print(f'Radius: {radius}')
+            print(f'Corresponding contour length: {len(contour)}')
+    else:
+        print('No valid radii found')
+        
+        
     
+
+
+
     # # Draw the detected circles
     # for r in radius:
     #     cv2.circle(image, (center_x, center_y), r, (0, 255, 0), 2)
