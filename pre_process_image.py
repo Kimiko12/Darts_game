@@ -146,7 +146,7 @@ def find_centers_of_clusters(new_image, target_mask, n_clusters=6):
     gold_pixels_coordinates = np.argwhere(target_mask)
     print(gold_pixels_coordinates)
     
-    block_size = 30
+    block_size = 10
     block = np.zeros((block_size, block_size), dtype='uint8')
     print("Block Shape:", block.shape[0])
     
@@ -154,7 +154,12 @@ def find_centers_of_clusters(new_image, target_mask, n_clusters=6):
         for i in range(0, target_mask.shape[0], block_size):
             for j in range(0, target_mask.shape[1], block_size):
                 block_mask = target_mask[i:i+block_size, j:j+block_size]
-                       
+                if np.all(block_mask) == 1:
+                    center = center_of_mass(block_mask)
+                    cv2.circle(new_image, (int(center[1]) + j, int(center[0]) + i), 5, (0, 255, 0), -1)
+                    
+    cv2.imwrite('image_with_centroids.png', new_image)
+    return gold_pixels_coordinates
     
 def mask_denoiser(golden_mask, iterations, kernel_size):
     kernel = np.ones((kernel_size, kernel_size), np.uint8)
