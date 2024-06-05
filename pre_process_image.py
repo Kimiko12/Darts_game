@@ -186,7 +186,34 @@ def denoiser(image):
     output_path = 'denoised_image.png'
     cv2.imwrite(output_path, result)
     
+    cleaned_bgr = remove_black_dots(result, kernel_size = 5, iterations = 1)
+    cv2.imwrite('cleaned_bgr.png', cleaned_bgr)
+    
     return result
+
+def remove_black_dots(image, kernel_size, iterations):
+    # Convert to grayscale
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    
+    # Invert the image
+    inverted = cv2.bitwise_not(gray)
+    
+    # Create a structuring element (kernel)
+    kernel = np.ones((kernel_size, kernel_size), np.uint8)
+    
+    # Perform closing (dilation followed by erosion)
+    closed = cv2.morphologyEx(inverted, cv2.MORPH_CLOSE, kernel, iterations=iterations)
+    
+    # Invert the closed image back
+    closed_inverted = cv2.bitwise_not(closed)
+    
+    # Subtract the closed inverted image from the original image
+    cleaned = cv2.subtract(gray, closed_inverted)
+    
+    # Convert back to BGR
+    cleaned_bgr = cv2.cvtColor(cleaned, cv2.COLOR_GRAY2BGR)
+    
+    return cleaned_bgr
 
 if __name__ == '__main__':
     image_source, gray_source, blurred_source, edges_source = pre_process_image(source_image_path)
@@ -216,31 +243,41 @@ if __name__ == '__main__':
     
     # Extracting colors
     # TODO Denoiser
+    filtered_image = denoiser(new_image)
     
     # Create masks for each color
-    define_colors(new_image, kernel_size = 5, iterations = 1)
+    color_masks = define_colors(new_image, kernel_size = 5, iterations = 1)
     print('Masks ready !!!')
+    
+    for color_name, mask in color_masks.items():
+        if color_name == 'brown':
+            brown_mask = mask
+        if color_name == 'red':
+            red_mask = mask
+        if color_name == 'green':
+            green_mask = mask
+            
+    
     
     palette = extract_colors(image=image_without_background_path, palette_size=5, resize = True)
     palette.display(save_to_file=False)
     main_colors = [color.rgb for color in palette]
     
-    filtered_image = denoiser(new_image)
     main_colors = [[*color] for color in main_colors]
     print(main_colors)
     approximated_image, gold_mask_image, mask = colorizing_image_in_5_shades(filtered_image, main_colors)
     
-    centroids = find_center_mass(approximated_image, mask)
-    print(f'Centroids: {centroids}')
+    # centroids = find_center_mass(approximated_image, mask)
+    # print(f'Centroids: {centroids}')
     
     
-    # Save the result
-    cv2.imwrite('detected_rings.png', new_contour_image)
-    cv2.imwrite('edges.png', new_edges)
-    cv2.imwrite('blurred.png', new_blurred)
-    cv2.imwrite('gray.png', new_gray)
+    # # Save the result
+    # cv2.imwrite('detected_rings.png', new_contour_image)
+    # cv2.imwrite('edges.png', new_edges)
+    # cv2.imwrite('blurred.png', new_blurred)
+    # cv2.imwrite('gray.png', new_gray)
     
-    
+    # ------------------------------------------------------------------------
     # M = cv2.moments(largest_contour)
     # center_x = int(M['m10'] / M['m00'])
     # center_y = int(M['m01'] / M['m00'])
