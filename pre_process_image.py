@@ -5,6 +5,7 @@ from sklearn.cluster import KMeans
 from Pylette import extract_colors
 from PIL import Image
 from scipy import stats
+from  scipy.ndimage import center_of_mass
 
 source_image_path = '/home/nikolay/ML/It_Jim/Darts_game/images/IMG_20240510_172748.jpg'
 image_without_background_path = '/home/nikolay/ML/It_Jim/Darts_game/masked_image.png'
@@ -141,25 +142,19 @@ def colorizing_image_in_10_shades(image, palette):
         
 #         return centroids
 
-def find_center_mass(image, mask, n_clusters=6):
-    # Находим координаты всех пикселей, принадлежащих маске
-    pixel_coords = np.argwhere(mask > 0)
+def find_centers_of_clusters(new_image, target_mask, n_clusters=6):
+    gold_pixels_coordinates = np.argwhere(target_mask)
+    print(gold_pixels_coordinates)
     
-    if len(pixel_coords) > 0:
-        # Применяем KMeans для кластеризации пикселей в заданное число кластеров
-        kmeans = KMeans(n_clusters=n_clusters, random_state=42).fit(pixel_coords)
-        centroids = kmeans.cluster_centers_
-        
-        # Отображаем центры кластеров на изображении
-        for centroid in centroids:
-            cv2.circle(image, (int(centroid[1]), int(centroid[0])), 10, (0, 0, 255), -1)
-        cv2.imwrite('/mnt/data/image_with_centroids.png', image)
-        
-        return centroids
-    else:
-        print("No target pixels found in the mask.")
-        return None
+    block_size = 30
+    block = np.zeros((block_size, block_size), dtype='uint8')
+    print("Block Shape:", block.shape[0])
     
+    if len(gold_pixels_coordinates) > 0:
+        for i in range(0, target_mask.shape[0], block_size):
+            for j in range(0, target_mask.shape[1], block_size):
+                block_mask = target_mask[i:i+block_size, j:j+block_size]
+                       
     
 def mask_denoiser(golden_mask, iterations, kernel_size):
     kernel = np.ones((kernel_size, kernel_size), np.uint8)
@@ -304,7 +299,7 @@ if __name__ == '__main__':
     # print(main_colors)
     # approximated_image, gold_mask_image, mask = colorizing_image_in_10_shades(new_image, main_colors)
     
-    centroids = find_center_mass(new_image, target_mask)
+    centroids = find_centers_of_clusters(new_image, target_mask, n_clusters=6)
     print(f'Centroids: {centroids}')
     
     
