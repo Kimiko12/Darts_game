@@ -34,18 +34,55 @@ def is_circle(contour, tolerance=0.1):
     circularity = 4 * np.pi * (area / (perimeter * perimeter))
     return abs(circularity - 1) >= tolerance
 
-def detect_radius(contours, center_x, center_y, ring_distance=20):
-    tolerance=0.1
-    corresponding_contours_radii = []
-    circle_contours = []
-    for contour in contours:
-        if is_circle(contour, tolerance):
-            circle_contours.append(contour)
+# def detect_radius(contours, center_x, center_y, ring_distance=1):
+#     tolerance=0.1
+#     corresponding_contours_radii = []
+#     circle_contours = []
+#     # for contour in contours:
+#     #     if is_circle(contour, tolerance):
+#     #         circle_contours.append(contour)
     
-    for contour in circle_contours:
-        (x, y), radius = cv2.minEnclosingCircle(contour)
-        distance_to_center = np.sqrt((x - center_x)**2 + (y - center_y)**2)
-        corresponding_contours_radii.append((distance_to_center, int(radius), contour))
+#     for contour in contours:
+#         (x, y), radius = cv2.minEnclosingCircle(contour)
+#         distance_to_center = np.sqrt((x - center_x)**2 + (y - center_y)**2)
+#         corresponding_contours_radii.append((distance_to_center, int(radius), contour))
+    
+#     # Sort based on the distance to the center
+#     detected_radii = sorted(corresponding_contours_radii, key=lambda x: x[0])
+    
+#     # Extract radii and contours after sorting
+#     sorted_radii = [radius for _, radius, _ in detected_radii]
+#     sorted_contours = [contour for _, _, contour in detected_radii]
+    
+#     # Calculate differences between successive radii
+#     differences = np.diff(sorted_radii)
+    
+#     # Find matching radii and corresponding contours based on ring distance
+#     matching_radii = []
+#     matching_contours = []
+    
+#     # for i, diff in enumerate(differences):
+#     #     if diff >= ring_distance:
+#     #         matching_radii.append(sorted_radii[i+1])
+#     #         matching_contours.append(sorted_contours[i+1])
+    
+#     return sorted_radii, sorted_contours
+
+
+def calculate_average_radius(contour, center_x, center_y):
+    distances = []
+    for point in contour:
+        distance = np.sqrt((point[0][0] - center_x)**2 + (point[0][1] - center_y)**2)
+        distances.append(distance)
+    return np.mean(distances)
+
+def detect_radius(contours, center_x, center_y, ring_distance=1):
+    corresponding_contours_radii = []
+
+    for contour in contours:
+        average_radius = calculate_average_radius(contour, center_x, center_y)
+        distance_to_center = np.sqrt((center_x - center_x)**2 + (center_y - center_y)**2)
+        corresponding_contours_radii.append((distance_to_center, int(average_radius), contour))
     
     # Sort based on the distance to the center
     detected_radii = sorted(corresponding_contours_radii, key=lambda x: x[0])
@@ -60,13 +97,17 @@ def detect_radius(contours, center_x, center_y, ring_distance=20):
     # Find matching radii and corresponding contours based on ring distance
     matching_radii = []
     matching_contours = []
+
+    print("Sorted radii:", sorted_radii)
+    print("Differences between radii:", differences)
     
     for i, diff in enumerate(differences):
         if diff >= ring_distance:
             matching_radii.append(sorted_radii[i+1])
             matching_contours.append(sorted_contours[i+1])
     
-    return matching_radii, matching_contours
+    return sorted_radii, sorted_contours, matching_radii, matching_contours
+
 
 def mask_space_out_of_darts(largest_contour, image, gray):
     mask = np.zeros_like(gray)
@@ -126,6 +167,52 @@ def define_colors(image, kernel_size, iterations):
         
     return color_masks
 
+
+def find_colors(image, color_ranges):
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    color_masks = {}
+    for color_name, (lower, upper) in color_ranges.items():
+        mask = cv2.inRange(hsv, lower, upper)
+        color_masks[color_name] = mask
+    return color_masks
+
+def define_contours_for_radius(image):
+    color_ranges = {
+        'red': (np.array([0, 70, 50]), np.array([10, 255, 255])),
+        'green': (np.array([40, 70, 50]), np.array([80, 255, 255])),
+        # 'gray': (np.array([0, 0, 0]), np.array([179, 255, 100])),
+        'gray': (np.array([0, 0, 0]), np.array([179, 255, 150]))
+
+        
+    }
+    
+    color_masks = find_colors(image, color_ranges)
+    
+    for color_name, mask in color_masks.items():
+        cv2.imwrite(f'{color_name}_mask.png', mask)
+
+    # Combine the masks
+    combined_mask = cv2.bitwise_or(color_masks['red'], color_masks['green'])
+    
+    # Apply the combined mask to the image
+    masked_image = cv2.bitwise_and(image, image, mask=cv2.bitwise_not(combined_mask))
+    cv2.imwrite('masked_image.png', masked_image)
+    
+    # Convert the masked image to grayscale
+    gray_masked_image = cv2.cvtColor(masked_image, cv2.COLOR_BGR2GRAY)
+    
+    # Find contours in the masked grayscale image
+    contours_masked_image, _ = cv2.findContours(gray_masked_image, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    
+    # Draw contours on the original image
+    contoured_image = image.copy()
+    cv2.drawContours(contoured_image, contours_masked_image, -1, (0, 255, 0), 3)
+    
+    # Save the contoured image
+    cv2.imwrite('mask_contoured_image.png', contoured_image)
+    
+    return color_masks
+        
         
 def KNN(pixel, palette):
     distances = np.sqrt(np.sum((pixel - palette)**2, axis=1))
@@ -177,10 +264,12 @@ def find_centers_of_clusters(new_image, target_mask, threshold=0.8, delta=50):
                 white_pixels = np.sum(block_mask > 0)
                 if white_pixels / total_pixels >= threshold:
                     center = center_of_mass(block_mask)
-                    global_center = (center[0] + i, center[1] + j)
+                    # global_center = (center[0] + i, center[1] + j)
+                    global_center = (int(center[1] + j), int(center[0] + i))
                     if not any(np.linalg.norm(np.array(global_center) - np.array(existing_center)) < delta for existing_center in centers):
                         centers.append(global_center)
-                        cv2.circle(new_image, (int(global_center[1]), int(global_center[0])), 5, (0, 255, 0), -1)
+                        # cv2.circle(new_image, (int(global_center[1]), int(global_center[0])), 5, (0, 255, 0), -1)
+                        cv2.circle(new_image, global_center, radius=5, color=(0, 255, 0), thickness=-1)
     # for center in centers:                 
     #     if center == (1460.1632653061224, 2404.0):
     #         cv2.circle(new_image, (int(global_center[1]), int(global_center[0])), 5, (0, 0, 255), -1)
@@ -283,42 +372,125 @@ def calculate_distance(cx, cy, radii, centroids):
     points = {}
     for i, centroid in enumerate(centroids):
         distance = np.sqrt((cx - centroid[0])**2 + (cy - centroid[1])**2)
-        if distance < radii[0]:
-            print(radii[0])
-            print(distance)
-            print(f'centroid: {centroid[0]} {centroid[1]}')
-            points[f'point_{i}'] = 80
-        elif distance <= radii[1] and distance > radii[0]:
-            print(radii[1])
-            print(distance)
-            print(f'centroid: {centroid[0]} {centroid[1]}')
-            points[f'point_{i}'] = 60
-        elif distance <= radii[2] and distance > radii[1]:
-            print(radii[2])
-            print(distance)
-            print(f'centroid: {centroid[0]} {centroid[1]}')
-            points[f'point_{i}'] = 50
-        elif distance <= radii[3] and distance > radii[2]:
-            print(radii[3])
-            print(distance)
-            print(f'centroid: {centroid[0]} {centroid[1]}')
-            points[f'point_{i}'] = 40
-        elif distance <= radii[4] and distance > radii[3]:
-            print(radii[4])
-            print(distance)
-            print(f'centroid: {centroid[0]} {centroid[1]}')
-            points[f'point_{i}'] = 30
-        elif distance <= radii[5] and distance > radii[4]:
-            print(radii[5])
-            print(distance)
-            print(f'centroid: {centroid[0]} {centroid[1]}')
-            points[f'point_{i}'] = 20
-        elif distance >= radii[6]:
-            print(radii[6])
+        if distance >= radii[2]:
             print(distance)
             print(f'centroid: {centroid[0]} {centroid[1]}')
             points[f'point_{i}'] = 10
+        elif distance >= radii[3] and distance < radii[2]:
+
+            print(distance)
+            print(f'centroid: {centroid[0]} {centroid[1]}')
+            points[f'point_{i}'] = 20
+        elif distance >= radii[4] and distance < radii[3]:
+
+            print(distance)
+            print(f'centroid: {centroid[0]} {centroid[1]}')
+            points[f'point_{i}'] = 30
+        elif distance >= radii[5] and distance < radii[4]:
+
+            print(distance)
+            print(f'centroid: {centroid[0]} {centroid[1]}')
+            points[f'point_{i}'] = 40
+        elif distance >= radii[6] and distance < radii[5]:
+
+            print(distance)
+            print(f'centroid: {centroid[0]} {centroid[1]}')
+            points[f'point_{i}'] = 50
+        elif distance >= radii[7] and distance < radii[6]:
+
+            print(distance)
+            print(f'centroid: {centroid[0]} {centroid[1]}')
+            points[f'point_{i}'] = 60
+        elif distance < radii[7]:
+
+            print(distance)
+            print(f'centroid: {centroid[0]} {centroid[1]}')
+            points[f'point_{i}'] = 80
     return points 
+
+
+# def calculate_distance(cx, cy, radii, centroids):
+#     if len(radii) < 8:
+#         raise ValueError("Список radii должен содержать как минимум 8 элементов.")
+
+#     points = {}
+#     scores = [10, 20, 30, 40, 50, 60, 80]  # Инвертированный список значений очков
+    
+#     for i, centroid in enumerate(centroids):
+#         distance = np.sqrt((cx - centroid[0])**2 + (cy - centroid[1])**2)
+#         print(f"distance: {distance}, centroid: {centroid}")
+
+#         if distance < radii[2]:
+#             print(f"Using radii[2]: {radii[2]}")
+#             points[f'point_{i}'] = scores[6]
+#         elif distance < radii[3]:
+#             print(f"Using radii[3]: {radii[3]}")
+#             points[f'point_{i}'] = scores[5]
+#         elif distance < radii[4]:
+#             print(f"Using radii[4]: {radii[4]}")
+#             points[f'point_{i}'] = scores[4]
+#         elif distance < radii[5]:
+#             print(f"Using radii[5]: {radii[5]}")
+#             points[f'point_{i}'] = scores[3]
+#         elif distance < radii[6]:
+#             print(f"Using radii[6]: {radii[6]}")
+#             points[f'point_{i}'] = scores[2]
+#         elif distance < radii[7]:
+#             print(f"Using radii[7]: {radii[7]}")
+#             points[f'point_{i}'] = scores[1]
+#         else:
+#             print(f"Distance is greater than radii[7]: {radii[7]}")
+#             points[f'point_{i}'] = scores[0]
+
+#     return points
+
+
+
+def classificating_points(image, centroids, red_color, green_color, scores):
+    hsv_image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    window_size = 5
+    half_window = window_size // 2
+    classified_points = {'red': 0, 'green': 0}
+
+    for idx, (x, y) in enumerate(centroids):
+        score = scores[f'point_{idx}']
+        
+        red_count = 0
+        green_count = 0
+        
+        for i in range(max(0, y - half_window), min(hsv_image.shape[0], y + half_window + 1)):
+            for j in range(max(0, x - half_window), min(hsv_image.shape[1], x + half_window + 1)):
+                point_value = hsv_image[i, j]
+                point_value = np.array(point_value).reshape(1, 1, 3)  # Преобразуем в массив нужного размера
+
+                # Проверка на зеленый цвет
+                green_mask = cv2.inRange(point_value, green_color[0], green_color[1])
+                if green_mask[0][0] == 255:
+                    green_count += 1
+
+                # Проверка на красный цвет
+                red_mask_1 = cv2.inRange(point_value, red_color[0], red_color[1])
+                red_mask_2 = cv2.inRange(point_value, np.array([170, 70, 50]), np.array([180, 255, 255]))
+                if red_mask_1[0][0] == 255 or red_mask_2[0][0] == 255:
+                    red_count += 1
+        
+        print(f"Point {idx} ({x},{y}): Red count = {red_count}, Green count = {green_count}, Score = {score}")
+        
+        if red_count >= green_count:
+            classified_points['red'] += score
+        else:
+            classified_points['green'] += score
+    
+    print(f"Total red score: {classified_points['red']}")
+    print(f"Total green score: {classified_points['green']}")
+
+    if classified_points['red'] > classified_points['green']:
+        return 'Red player WIN !!!!!!!!!!!!!!!!!!!!'
+    elif classified_points['green'] > classified_points['red']:
+        return 'Green player WIN !!!!!!!!!!!!!!!!!!!!'
+    else:
+        return 'It is a TIE !!!!!!!!!!!!!!!!!!!!'
+
 
 if __name__ == '__main__':
     image_source, gray_source, blurred_source, edges_source = pre_process_image(source_image_path)
@@ -331,6 +503,7 @@ if __name__ == '__main__':
     print(f'Image without background saved as {image_without_background_path}')
 
     new_image, new_gray, new_blurred, new_edges = pre_process_image(image_without_background_path)
+    new_2_image = new_image.copy()
     # find center of board
     cx, cy = find_target_center(new_image, largest_contour)
 
@@ -358,7 +531,25 @@ if __name__ == '__main__':
     
     # Create masks for each color
     color_masks = define_colors(new_image, kernel_size = 5, iterations = 1)
-    print('Masks ready !!!')
+    gray_mask = define_contours_for_radius(new_image)['gray']
+    contours_for_gray, _ = cv2.findContours(gray_mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    print(len(contours_for_gray))
+    sorted_gray_contours = sorted(contours_for_gray, key=cv2.contourArea, reverse=True)
+    nine_main_contours = sorted_gray_contours[1:9]
+    print(f'Number of main contours: {len(nine_main_contours)}')
+
+    new_contour_image = new_image.copy()
+    cv2.drawContours(new_contour_image, nine_main_contours[-1], -1, (0, 255, 0), 3)
+    cv2.imwrite('gray_contours.png', new_contour_image)
+    # print('Masks ready !!!')
+    # compoition_of_contours = []
+    # for i in range(len(nine_main_contours)):
+    #     compoition_of_contours.extend(separate_contours(new_image, nine_main_contours[i]))
+    # renew_contour_image = new_image.copy()
+    # cv2.drawContours(renew_contour_image, compoition_of_contours, -1, (0, 255, 0), 3)
+    # cv2.imwrite('renew_contours.png', renew_contour_image)
+    # devided_contour = separate_contours(gray_mask, nine_main_contours[5])
+    
     
     for color_name, mask in color_masks.items():
         if color_name == 'target':
@@ -368,9 +559,9 @@ if __name__ == '__main__':
         if color_name == 'green':
             green_mask = mask
     
-    palette = extract_colors(image=image_without_background_path, palette_size=10, resize = True)
-    palette.display(save_to_file=False)
-    main_colors = [color.rgb for color in palette]
+    # palette = extract_colors(image=image_without_background_path, palette_size=10, resize = True)
+    # palette.display(save_to_file=False)
+    # main_colors = [color.rgb for color in palette]
     
     # main_colors = [[*color] for color in main_colors]
     # print(main_colors)
@@ -388,20 +579,20 @@ if __name__ == '__main__':
     # cv2.imwrite('gray.png', new_gray)
     
     
-    matching_radii, matching_contours = detect_radius(contours, cx, cy, ring_distance=20)
+    matching_radii, matching_contours, _, _ = detect_radius(nine_main_contours, cx, cy, ring_distance=1)
     print(f'Matching radii: {matching_radii}, Matching contours: {len(matching_contours)}')
     new_contour_imagee = new_image.copy()
-    cv2.drawContours(new_contour_imagee, matching_contours, -1, (0, 255, 0), 3)
+    cv2.drawContours(new_contour_imagee, matching_contours, -1, (0, 0, 255), 3)
     cv2.imwrite('select_circle_contour_image.png', new_contour_imagee)
     
     sorted_radius_contours = []
     for r, contour in zip(matching_radii, matching_contours):
-        if r < 50 or any(abs(r - radius) < 50 for radius, _ in sorted_radius_contours):
-            continue
+        # if r < 50 or any(abs(r - radius) < 50 for radius, _ in sorted_radius_contours):
+        #     continue
         sorted_radius_contours.append((r, contour))
 
-    sorted_radius_contours = sorted(sorted_radius_contours, key=lambda x: x[0])
-
+    sorted_radius_contours = sorted(sorted_radius_contours, key=lambda x: x[0], reverse=True)
+    
     if sorted_radius_contours:
         for radius, contour in sorted_radius_contours:
             print(f'Radius: {radius}')
@@ -411,58 +602,16 @@ if __name__ == '__main__':
         
     radii = [r for r, _ in sorted_radius_contours]
     print(len(radii))
+    print(f'Sorted radius contours: {radii}')
     # calculate distance
     points = calculate_distance(cx, cy, radii, centroids)
     print(f'Points: {points}')
 
-
-    # # Draw the detected circles
-    # for r in radius:
-    #     cv2.circle(image, (center_x, center_y), r, (0, 255, 0), 2)
-    #     cv2.putText(image, str(r), (center_x + r, center_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
-
-    # Display the results using matplotlib
-    # plt.figure(figsize=(10, 5))
-    # plt.imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-    # plt.title('Detected Rings and Labels')
-    # plt.show()
-
-    # Save the result
-    # cv2.imwrite('detected_rings.png', image)
-    # cv2.imwrite('edges.png', edges)
-    # cv2.imwrite('blurred.png', blurred)
-    # cv2.imwrite('gray.png', gray)
-    # cv2.imwrite('detected_circles.png', image)
-        
-                
-        # print('Detecting circles...')
-        # circles = cv2.HoughCircles(edges, cv2.HOUGH_GRADIENT, dp=1.2, minDist=100, param1=200, param2=100, minRadius=100, maxRadius=1000)
-
-                
-        # max_circles = 150
-        # if circles is not None:
-        #     circles = np.round(circles[0, :]).astype("int")
-        #     circles = circles[:max_circles]  # Select top N circles
-            
-        #     for (x, y, r) in circles:
-        #         cv2.circle(image, (x, y), r, (0, 255, 0), 4)
-        
-        # Display the results using matplotlib
-    # plt.figure(figsize=(10, 5))
-    # plt.subplot(1, 2, 1)
-    # plt.imshow(edges, cmap='gray')
-    # plt.title('Canny Edge Detection')
     
-    # plt.subplot(1, 2, 2)
-    # plt.imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-    # plt.title('Detected Circles')
+    color_ranges = {
+    'red': (np.array([0, 70, 50]), np.array([10, 255, 255])),
+    'green': (np.array([35, 50, 50]), np.array([85, 255, 255])),
+    }
     
-    # plt.show()
-    
-    # # Save the results
-    # cv2.imwrite('edges.png', edges)
-    # cv2.imwrite('blurred.png', blurred)
-    # cv2.imwrite('gray.png', gray)
-    # cv2.imwrite('detected_circles.png', image)
-    # else:
-    #     print("Error: Image not loaded correctly.")
+    res = classificating_points(new_2_image, centroids, color_ranges['red'], color_ranges['green'], points)
+    print(res)
