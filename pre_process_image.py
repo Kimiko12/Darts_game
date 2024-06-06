@@ -446,41 +446,43 @@ def calculate_distance(cx, cy, radii, centroids):
 
 
 
-def classificating_points(image, centroids, red_color, green_color, scores):
-    hsv_image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-    window_size = 5
+def classificating_points(image, centroids, points):
+    window_size = 100
     half_window = window_size // 2
-    classified_points = {'red': 0, 'green': 0}
+    classified_points = {'red': 0, 'green': 0, 'other': 0}
+
+    # Определение цветовых диапазонов в BGR
+    red_color = [np.array([0, 0, 100]), np.array([100, 100, 255])]
+    green_color = [np.array([0, 100, 0]), np.array([100, 255, 100])]
 
     for idx, (x, y) in enumerate(centroids):
-        score = scores[f'point_{idx}']
+        score = points[f'point_{idx}']
         
         red_count = 0
         green_count = 0
         
-        for i in range(max(0, y - half_window), min(hsv_image.shape[0], y + half_window + 1)):
-            for j in range(max(0, x - half_window), min(hsv_image.shape[1], x + half_window + 1)):
-                point_value = hsv_image[i, j]
-                point_value = np.array(point_value).reshape(1, 1, 3)  # Преобразуем в массив нужного размера
+        for i in range(max(0, y - half_window), min(image.shape[0], y + half_window + 1)):
+            for j in range(max(0, x - half_window), min(image.shape[1], x + half_window + 1)):
+                point_value = image[i, j]
+                print(f"Pixel value at ({i},{j}): {point_value}")
 
                 # Проверка на зеленый цвет
-                green_mask = cv2.inRange(point_value, green_color[0], green_color[1])
-                if green_mask[0][0] == 255:
+                if (point_value >= green_color[0]).all() and (point_value <= green_color[1]).all():
                     green_count += 1
 
                 # Проверка на красный цвет
-                red_mask_1 = cv2.inRange(point_value, red_color[0], red_color[1])
-                red_mask_2 = cv2.inRange(point_value, np.array([170, 70, 50]), np.array([180, 255, 255]))
-                if red_mask_1[0][0] == 255 or red_mask_2[0][0] == 255:
+                if (point_value >= red_color[0]).all() and (point_value <= red_color[1]).all():
                     red_count += 1
         
         print(f"Point {idx} ({x},{y}): Red count = {red_count}, Green count = {green_count}, Score = {score}")
         
-        if red_count >= green_count:
+        if red_count > green_count:
             classified_points['red'] += score
-        else:
+        elif green_count > red_count:
             classified_points['green'] += score
-    
+        else:
+            classified_points['other'] += score
+            
     print(f"Total red score: {classified_points['red']}")
     print(f"Total green score: {classified_points['green']}")
 
@@ -490,6 +492,7 @@ def classificating_points(image, centroids, red_color, green_color, scores):
         return 'Green player WIN !!!!!!!!!!!!!!!!!!!!'
     else:
         return 'It is a TIE !!!!!!!!!!!!!!!!!!!!'
+
 
 
 if __name__ == '__main__':
@@ -608,10 +611,10 @@ if __name__ == '__main__':
     print(f'Points: {points}')
 
     
-    color_ranges = {
-    'red': (np.array([0, 70, 50]), np.array([10, 255, 255])),
-    'green': (np.array([35, 50, 50]), np.array([85, 255, 255])),
-    }
+    # color_ranges = {
+    # 'red': (np.array([0, 70, 50]), np.array([10, 255, 255])),
+    # 'green': (np.array([35, 50, 50]), np.array([85, 255, 255])),
+    # }
     
-    res = classificating_points(new_2_image, centroids, color_ranges['red'], color_ranges['green'], points)
+    res = classificating_points(new_2_image, centroids, points)
     print(res)
