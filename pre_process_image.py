@@ -447,7 +447,7 @@ def calculate_distance(cx, cy, radii, centroids):
 
 
 def classificating_points(image, centroids, points):
-    window_size = 100
+    window_size = 120
     half_window = window_size // 2
     classified_points = {'red': 0, 'green': 0, 'other': 0}
 
