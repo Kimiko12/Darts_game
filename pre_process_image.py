@@ -26,10 +26,23 @@ def find_largest_contour(contours):
                 contours_circul.append(contour)
     return contours_circul
 
+def is_circle(contour, tolerance=0.1):
+    area = cv2.contourArea(contour)
+    perimeter = cv2.arcLength(contour, True)
+    if perimeter == 0:
+        return False
+    circularity = 4 * np.pi * (area / (perimeter * perimeter))
+    return abs(circularity - 1) >= tolerance
 
 def detect_radius(contours, center_x, center_y, ring_distance=20):
+    tolerance=0.1
     corresponding_contours_radii = []
+    circle_contours = []
     for contour in contours:
+        if is_circle(contour, tolerance):
+            circle_contours.append(contour)
+    
+    for contour in circle_contours:
         (x, y), radius = cv2.minEnclosingCircle(contour)
         distance_to_center = np.sqrt((x - center_x)**2 + (y - center_y)**2)
         corresponding_contours_radii.append((distance_to_center, int(radius), contour))
@@ -142,34 +155,6 @@ def colorizing_image_in_10_shades(image, palette):
     return approximated_image, gold_mask_image, mask
 
 
-# def find_centers_of_clusters(new_image, target_mask, n_clusters=6, threshold = 0.8):
-#     delta = 0.01
-#     gold_pixels_coordinates = np.argwhere(target_mask)
-#     print(gold_pixels_coordinates)
-    
-#     block_size = 8
-#     block_size_for_centers = 4
-    
-#     block = np.zeros((block_size, block_size), dtype='uint8')
-#     print("Block Shape:", block.shape[0])
-    
-#     block_for_centers = np.zeros((block_size_for_centers, block_size_for_centers, 3), dtype='uint8')
-    
-#     centers = []
-#     if len(gold_pixels_coordinates) > 0:
-#         for i in range(0, target_mask.shape[0], block_size):
-#             for j in range(0, target_mask.shape[1], block_size):
-#                 block_mask = target_mask[i:i+block_size, j:j+block_size]
-#                 total_pixels = block_mask.size
-#                 white_pixels = np.sum(block_mask > 0)
-#                 if white_pixels / total_pixels >= threshold:
-#                     center = center_of_mass(block_mask)
-#                     centers.append(center)
-#                     cv2.circle(new_image, (int(center[1]) + j, int(center[0]) + i), 5, (0, 255, 0), -1)
-#     cv2.imwrite('image_with_centroids.png', new_image)
-#     return gold_pixels_coordinates
-
-
 def find_centers_of_clusters(new_image, target_mask, threshold=0.8, delta=50):
     gold_pixels_coordinates = np.argwhere(target_mask)
     print(gold_pixels_coordinates)
@@ -196,7 +181,9 @@ def find_centers_of_clusters(new_image, target_mask, threshold=0.8, delta=50):
                     if not any(np.linalg.norm(np.array(global_center) - np.array(existing_center)) < delta for existing_center in centers):
                         centers.append(global_center)
                         cv2.circle(new_image, (int(global_center[1]), int(global_center[0])), 5, (0, 255, 0), -1)
-                
+    # for center in centers:                 
+    #     if center == (1460.1632653061224, 2404.0):
+    #         cv2.circle(new_image, (int(global_center[1]), int(global_center[0])), 5, (0, 0, 255), -1)
     cv2.imwrite('image_with_centroids.png', new_image)
     return centers
     
@@ -290,62 +277,48 @@ def find_target_center(new_image, largest_contour):
                 cv2.imwrite('image_with_center.png', new_image)
                 
                 return cX, cY
-            
-            
-def detect_circles(image_path):
-    # Загрузить изображение
-    image = cv2.imread(image_path)
-    output = image.copy()
-    
-    # Преобразовать изображение в градации серого
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    
-    # Применить размытие для снижения шума
-    gray_blurred = cv2.medianBlur(gray, 5)
-    
-    # Найти круги с использованием алгоритма Хафа
-    circles = cv2.HoughCircles(
-        gray_blurred, 
-        cv2.HOUGH_GRADIENT, dp=1, minDist=20, 
-        param1=50, param2=30, minRadius=0, maxRadius=0
-    )
-    
-    # Если круги найдены, обработать их
-    if circles is not None:
-        circles = np.uint16(np.around(circles))
-        for i in circles[0, :]:
-            # Нарисовать внешний круг
-            cv2.circle(output, (i[0], i[1]), i[2], (0, 255, 0), 2)
-            # Нарисовать центр круга
-            cv2.circle(output, (i[0], i[1]), 2, (0, 0, 255), 3)
-    
-    # Сохранить результат
-    cv2.imwrite('detected_circles.png', output)
     
     
 def calculate_distance(cx, cy, radii, centroids):
     points = {}
     for i, centroid in enumerate(centroids):
-        distance = np.linalg.norm(centroid - np.array([cx, cy]))
+        distance = np.sqrt((cx - centroid[0])**2 + (cy - centroid[1])**2)
         if distance < radii[0]:
-            points[f'point_{i}'] = 100
-        elif distance <= radii[1] and distance > radii[0]:
+            print(radii[0])
+            print(distance)
+            print(f'centroid: {centroid[0]} {centroid[1]}')
             points[f'point_{i}'] = 80
-        elif distance <= radii[2] and distance > radii[1]:
+        elif distance <= radii[1] and distance > radii[0]:
+            print(radii[1])
+            print(distance)
+            print(f'centroid: {centroid[0]} {centroid[1]}')
             points[f'point_{i}'] = 60
-        elif distance <= radii[3] and distance > radii[2]:
+        elif distance <= radii[2] and distance > radii[1]:
+            print(radii[2])
+            print(distance)
+            print(f'centroid: {centroid[0]} {centroid[1]}')
             points[f'point_{i}'] = 50
-        elif distance <= radii[4] and distance > radii[3]:
+        elif distance <= radii[3] and distance > radii[2]:
+            print(radii[3])
+            print(distance)
+            print(f'centroid: {centroid[0]} {centroid[1]}')
             points[f'point_{i}'] = 40
-        elif distance <= radii[5] and distance > radii[4]:
+        elif distance <= radii[4] and distance > radii[3]:
+            print(radii[4])
+            print(distance)
+            print(f'centroid: {centroid[0]} {centroid[1]}')
             points[f'point_{i}'] = 30
-        elif distance <= radii[6] and distance > radii[5]:
+        elif distance <= radii[5] and distance > radii[4]:
+            print(radii[5])
+            print(distance)
+            print(f'centroid: {centroid[0]} {centroid[1]}')
             points[f'point_{i}'] = 20
-        elif distance >= radii[7]:
+        elif distance >= radii[6]:
+            print(radii[6])
+            print(distance)
+            print(f'centroid: {centroid[0]} {centroid[1]}')
             points[f'point_{i}'] = 10
     return points 
-        
-
 
 if __name__ == '__main__':
     image_source, gray_source, blurred_source, edges_source = pre_process_image(source_image_path)
@@ -404,6 +377,7 @@ if __name__ == '__main__':
     # approximated_image, gold_mask_image, mask = colorizing_image_in_10_shades(new_image, main_colors)
     
     centroids = find_centers_of_clusters(new_image, target_mask, threshold=0.7)
+    print(f'centr: {cx}, {cy}')
     print(f'Centroids: {centroids}')
     
     
@@ -413,14 +387,13 @@ if __name__ == '__main__':
     # cv2.imwrite('blurred.png', new_blurred)
     # cv2.imwrite('gray.png', new_gray)
     
-    # ------------------------------------------------------------------------
-    # M = cv2.moments(largest_contour)
-    # center_x = int(M['m10'] / M['m00'])
-    # center_y = int(M['m01'] / M['m00'])
     
     matching_radii, matching_contours = detect_radius(contours, cx, cy, ring_distance=20)
     print(f'Matching radii: {matching_radii}, Matching contours: {len(matching_contours)}')
-
+    new_contour_imagee = new_image.copy()
+    cv2.drawContours(new_contour_imagee, matching_contours, -1, (0, 255, 0), 3)
+    cv2.imwrite('select_circle_contour_image.png', new_contour_imagee)
+    
     sorted_radius_contours = []
     for r, contour in zip(matching_radii, matching_contours):
         if r < 50 or any(abs(r - radius) < 50 for radius, _ in sorted_radius_contours):
@@ -437,7 +410,7 @@ if __name__ == '__main__':
         print('No valid radii found')
         
     radii = [r for r, _ in sorted_radius_contours]
-    print(cx, cy, radii, centroids)
+    print(len(radii))
     # calculate distance
     points = calculate_distance(cx, cy, radii, centroids)
     print(f'Points: {points}')
