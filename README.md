@@ -1,31 +1,29 @@
-# Canny
+# Darts Game
 
-The Canny Edge Detection algorithm is a multi-stage process used to detect edges in images. It's known for its efficiency and effectiveness in highlighting the important structural features in an image while reducing noise. 
+This project was create for automatically calculate scores of darts game and define winner.
 
+### Installation
 
-Обзор плана 
+1. Clone the repo:
 
-    - Предварительная обработка изображений 
-        Преобразование изображений в оттенки серого. 
-        Примените размытие по Гауссу, чтобы уменьшить шум. 
-        Используйте обнаружение краев (например, Canny), чтобы выделить ключевые функции. 
+    ```bash
+    git clone https://github.com/yourusername/projectname.git
+    ```
 
-    - Обнаружение дартса 
-        Определите круглую мишень, используя преобразование круга Хафа. 
-        Замаскируйте область за пределами обнаруженного круга, чтобы сфокусироваться на мишени. 
+2. Install dependencies:
 
-    - Обнаружение зоны подсчета очков 
-        Разделите мишень на зачетные зоны (например, яблочко, внутреннее кольцо, внешнее кольцо, тройное, двойное). 
-        Используйте полярную систему координат, чтобы точно нанести на карту области подсчета очков. 
+    ```bash
+    pip install -r requirements.txt
+    ```
 
-    - Обнаружение стрел 
-        Обнаруживайте дротики с помощью обнаружения контуров. 
-        Отфильтруйте шум и ненужные контуры на основе размера и формы. 
-        Классифицируйте обнаруженные дротики по цвету (красный или зеленый). 
+3. Set up the environment:
 
-    - Расчет очков 
-        Определите положение каждого дротика и назначьте очки в зависимости от зон подсчета очков. 
-        Суммируйте баллы за каждый цвет. 
+    ```bash
+    source darts_game_venv/bin/activate
+    ```
 
-    - Определение победителя 
-        Сравните общее количество очков за красные и зеленые дротики, чтобы объявить победителя. 
+4. Run the application:
+
+    ```bash
+    python pre_process_image.py
+    ```
